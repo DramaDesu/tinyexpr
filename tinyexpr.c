@@ -228,8 +228,6 @@ static const te_variable *find_lookup(const state *s, const char *name, int len)
     return 0;
 }
 
-
-
 static double add(double a, double b) {return a + b;}
 static double sub(double a, double b) {return a - b;}
 static double mul(double a, double b) {return a * b;}
@@ -237,32 +235,23 @@ static double divide(double a, double b) {return a / b;}
 static double negate(double a) {return -a;}
 static double comma(double a, double b) {(void)a; return b;}
 
-static bool and(unsigned int a, unsigned int b)
-{
-	return a && b;
-}
-static bool or(unsigned int a, unsigned int b)
-{
-	return a || b;
-}
+static unsigned int add_int(unsigned int a, unsigned int b) { return a + b; }
+static unsigned int sub_int(unsigned int a, unsigned int b) { return a - b; }
+static unsigned int mul_int(unsigned int a, unsigned int b) { return a * b; }
+static unsigned int divide_int(unsigned int a, unsigned int b) { return a / b; }
+static unsigned int mod_int(unsigned int a, unsigned int b) { return a % b; }
 
-static bool equals(unsigned int a, unsigned int b)
-{
-	return a == b;
-}
-static bool not_equals(unsigned int a, unsigned int b)
-{
-	return a != b;
-}
+static bool and(unsigned int a, unsigned int b) { return a && b; }
+static bool or(unsigned int a, unsigned int b) { return a || b; }
 
-static bool greater(unsigned int a, unsigned int b)
-{
-	return a > b;
-}
-static bool less(unsigned int a, unsigned int b)
-{
-	return a < b;
-}
+static bool equals(unsigned int a, unsigned int b) { return a == b; }
+static bool not_equals(unsigned int a, unsigned int b) { return a != b; }
+
+static bool greater_or_equal(unsigned int a, unsigned int b) { return a >= b; }
+static bool greater(unsigned int a, unsigned int b) { return a > b; }
+
+static bool less_or_equal(unsigned int a, unsigned int b) { return a <= b; }
+static bool less(unsigned int a, unsigned int b) { return a < b; }
 
 void next_token(state *s) {
     s->type = TOK_NULL;
@@ -280,8 +269,17 @@ void next_token(state *s) {
             s->logic_value = strtoul(s->next, (char**)&s->next, 16);
             s->type = TOK_NUMBER;
         } else if ((s->next[0] >= '0' && s->next[0] <= '9') || s->next[0] == '.') {
-            s->value = strtod(s->next, (char**)&s->next);
-            s->type = TOK_NUMBER;
+
+			if (s->is_logic && s->next[0] != '.')
+			{
+                s->logic_value = strtoul(s->next, (char**)&s->next, 10);
+                s->type = TOK_NUMBER;
+			}
+			else if (!s->is_logic)
+			{
+                s->value = strtod(s->next, (char**)&s->next);
+                s->type = TOK_NUMBER;
+			}
         } else {
             /* Look for a variable or builtin function call. */
             if (isalpha(s->next[0])) {
@@ -323,15 +321,106 @@ void next_token(state *s) {
 
             } else {
                 /* Look for an operator or special character. */
+
+            	//static unsigned int add_int(unsigned int a, unsigned int b) { return a + b; }
+            	//static unsigned int sub_int(unsigned int a, unsigned int b) { return a - b; }
+            	//static unsigned int mul_int(unsigned int a, unsigned int b) { return a * b; }
+            	//static unsigned int divide_int(unsigned int a, unsigned int b) { return a / b; }
+
                 switch (s->next++[0]) {
-                    case '+': s->type = TOK_INFIX; s->function = add; break;
-                    case '-': s->type = TOK_INFIX; s->function = sub; break;
-                    case '*': s->type = TOK_INFIX; s->function = mul; break;
-                    case '/': s->type = TOK_INFIX; s->function = divide; break;
-                    case '^': s->type = TOK_INFIX; s->function = pow; break;
-                    case '%': s->type = TOK_INFIX; s->function = fmod; break;
-                    case '>': s->type = TOK_INFIX; s->function = greater; break;
-                    case '<': s->type = TOK_INFIX; s->function = less; break;
+                    case '+':
+                    {
+                        s->type = TOK_INFIX;
+						if (s->is_logic)
+						{
+                            s->function = add_int;
+						}
+						else
+						{
+                            s->function = add;
+						}
+                        break;
+                    }
+                    case '-':
+                    {
+                        s->type = TOK_INFIX;
+                        if (s->is_logic)
+                        {
+                            s->function = sub_int;
+                        }
+                        else
+                        {
+                            s->function = sub;
+                        }
+                        break;
+                    }
+                    case '*': 
+                    {
+                        s->type = TOK_INFIX;
+                        if (s->is_logic)
+                        {
+                            s->function = mul_int;
+                        }
+                        else
+                        {
+                            s->function = mul;
+                        }
+                        break;
+                    }
+                    case '/': 
+                    {
+                        s->type = TOK_INFIX;
+                        if (s->is_logic)
+                        {
+                            s->function = divide_int;
+                        }
+                        else
+                        {
+                            s->function = divide;
+                        }
+                        break;
+                    }
+                    case '^':
+                    {
+                        s->type = TOK_ERROR;
+                        if (!s->is_logic)
+                        {
+                            s->type = TOK_INFIX;
+                            s->function = pow;
+                        }
+                        break;
+                    }
+                    case '%':
+                    {
+                        s->type = TOK_INFIX;
+                        if (s->is_logic)
+                        {
+                            s->function = mod_int;
+                        }
+                        else
+                        {
+                            s->function = fmod;
+                        }
+                        break;
+                    }
+                    case '>':
+                    {
+                        switch (s->next[1])
+                        {
+	                        case '=': s->type = TOK_INFIX; s->function = greater_or_equal; s->next++; break;
+	                        default: s->type = TOK_INFIX; s->function = greater; break;
+                        }
+                        break;
+                    }
+                    case '<':
+                    {
+                        switch (s->next[1])
+                        {
+							case '=': s->type = TOK_INFIX; s->function = less_or_equal; s->next++; break;
+							default: s->type = TOK_INFIX; s->function = less; break;
+                        }
+                        break;
+                    }
 					case '=':
 					{
                         switch (s->next++[0])
@@ -339,7 +428,7 @@ void next_token(state *s) {
 							case '=': s->type = TOK_INFIX; s->function = equals; break;
 							default: s->type = TOK_ERROR; break;
                         }
-							break;
+						break;
 					}
                     case '!':
                     {
@@ -596,7 +685,8 @@ static te_expr *factor(state *s) {
     te_expr *ret = power(s);
     CHECK_NULL(ret);
 
-    while (s->type == TOK_INFIX && (s->function == pow || s->function == equals || s->function == not_equals || s->function == greater || s->function == less)) {
+    while (s->type == TOK_INFIX && (s->function == pow || s->function == equals || s->function == not_equals 
+									|| s->function == greater_or_equal || s->function == greater || s->function == less_or_equal || s->function == less)) {
         te_fun2 t = s->function;
         next_token(s);
         te_expr *p = power(s);
@@ -621,7 +711,8 @@ static te_expr *term(state *s) {
     te_expr *ret = factor(s);
     CHECK_NULL(ret);
 
-    while (s->type == TOK_INFIX && (s->function == mul || s->function == divide || s->function == fmod || s->function == and)) {
+    while (s->type == TOK_INFIX && (s->function == mul || s->function == divide || s->function == fmod ||
+										s->function == mul_int || s->function == divide_int || s->function == mod_int || s->function == and)) {
         const void* cached_func = s->function;
         next_token(s);
         te_expr *f = factor(s);
@@ -643,7 +734,7 @@ static te_expr *expr(state *s) {
     te_expr *ret = term(s);
     CHECK_NULL(ret);
 
-    while (s->type == TOK_INFIX && (s->function == add || s->function == sub || s->function == or)) {
+    while (s->type == TOK_INFIX && (s->function == add || s->function == sub || s->function == add_int || s->function == sub_int || s->function == or)) {
         te_fun2 t = s->function;
         next_token(s);
         te_expr *te = term(s);
