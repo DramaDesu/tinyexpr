@@ -30,12 +30,12 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
+#include <stdbool.h>
 
 
 typedef struct te_expr {
     int type;
-    union {double value; const double *bound; const void *function;};
+    union {double value; const double *bound; unsigned int logic_value; const unsigned int* logic_bound; const void *function;};
     void *parameters[1];
 } te_expr;
 
@@ -52,6 +52,7 @@ enum {
     TE_FLAG_PURE = 32
 };
 
+
 typedef struct te_variable {
     const char *name;
     const void *address;
@@ -67,10 +68,13 @@ double te_interp(const char *expression, int *error);
 
 /* Parses the input expression and binds variables. */
 /* Returns NULL on error. */
-te_expr *te_compile(const char *expression, const te_variable *variables, int var_count, int *error);
+te_expr *te_compile(const char *expression, bool is_logic, const te_variable *variables, int var_count, int *error);
 
 /* Evaluates the expression. */
 double te_eval(const te_expr *n);
+
+/* Evaluates the logic expression. */
+unsigned int te_logic_eval(const te_expr* n);
 
 /* Prints debugging information on the syntax tree. */
 void te_print(const te_expr *n);

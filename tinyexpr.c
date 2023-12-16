@@ -53,6 +53,7 @@ For log = natural log uncomment the next line. */
 
 
 typedef double (*te_fun2)(double, double);
+typedef bool (*te_logic_fun2)(unsigned int, unsigned int);
 
 enum {
     TOK_NULL = TE_CLOSURE7+1, TOK_ERROR, TOK_END, TOK_SEP,
@@ -67,7 +68,8 @@ typedef struct state {
     const char *start;
     const char *next;
     int type;
-    union {double value; const double *bound; const void *function;};
+    bool is_logic;
+    union {double value; const double *bound; unsigned int logic_value; const unsigned int* logic_bound; const void *function;};
     void *context;
 
     const te_variable *lookup;
@@ -235,6 +237,32 @@ static double divide(double a, double b) {return a / b;}
 static double negate(double a) {return -a;}
 static double comma(double a, double b) {(void)a; return b;}
 
+static bool and(unsigned int a, unsigned int b)
+{
+	return a && b;
+}
+static bool or(unsigned int a, unsigned int b)
+{
+	return a || b;
+}
+
+static bool equals(unsigned int a, unsigned int b)
+{
+	return a == b;
+}
+static bool not_equals(unsigned int a, unsigned int b)
+{
+	return a != b;
+}
+
+static bool greater(unsigned int a, unsigned int b)
+{
+	return a > b;
+}
+static bool less(unsigned int a, unsigned int b)
+{
+	return a < b;
+}
 
 void next_token(state *s) {
     s->type = TOK_NULL;
@@ -247,7 +275,11 @@ void next_token(state *s) {
         }
 
         /* Try reading a number. */
-        if ((s->next[0] >= '0' && s->next[0] <= '9') || s->next[0] == '.') {
+        if (s->is_logic && s->next[0] == '0' && (s->next[1] == 'x' || s->next[1] == 'X'))
+        {
+            s->logic_value = strtoul(s->next, (char**)&s->next, 16);
+            s->type = TOK_NUMBER;
+        } else if ((s->next[0] >= '0' && s->next[0] <= '9') || s->next[0] == '.') {
             s->value = strtod(s->next, (char**)&s->next);
             s->type = TOK_NUMBER;
         } else {
@@ -255,7 +287,7 @@ void next_token(state *s) {
             if (isalpha(s->next[0])) {
                 const char *start;
                 start = s->next;
-                while (isalpha(s->next[0]) || isdigit(s->next[0]) || (s->next[0] == '_')) s->next++;
+                while (isalpha(s->next[0]) || isdigit(s->next[0]) || (s->next[0] == '_') || (s->next[0] == '.')) s->next++;
                 
                 const te_variable *var = find_lookup(s, start, s->next - start);
                 if (!var) var = find_builtin(start, s->next - start);
@@ -267,7 +299,14 @@ void next_token(state *s) {
                     {
                         case TE_VARIABLE:
                             s->type = TOK_VARIABLE;
-                            s->bound = var->address;
+                            if (s->is_logic)
+                            {
+                                s->bound = var->address;
+                            }
+                            else
+                            {
+                                s->logic_bound = var->address;
+                            }
                             break;
 
                         case TE_CLOSURE0: case TE_CLOSURE1: case TE_CLOSURE2: case TE_CLOSURE3:         /* Falls through. */
@@ -291,6 +330,44 @@ void next_token(state *s) {
                     case '/': s->type = TOK_INFIX; s->function = divide; break;
                     case '^': s->type = TOK_INFIX; s->function = pow; break;
                     case '%': s->type = TOK_INFIX; s->function = fmod; break;
+                    case '>': s->type = TOK_INFIX; s->function = greater; break;
+                    case '<': s->type = TOK_INFIX; s->function = less; break;
+					case '=':
+					{
+                        switch (s->next++[0])
+                        {
+							case '=': s->type = TOK_INFIX; s->function = equals; break;
+							default: s->type = TOK_ERROR; break;
+                        }
+							break;
+					}
+                    case '!':
+                    {
+                        switch (s->next++[0])
+                        {
+							case '=': s->type = TOK_INFIX; s->function = not_equals; break;
+							default: s->type = TOK_ERROR; break;
+                        }
+                        break;
+                    }
+                    case '&':
+                    {
+                        switch (s->next++[0])
+                        {
+                        case '&': s->type = TOK_INFIX; s->function = and; break;
+                        default: s->type = TOK_ERROR; break;
+                        }
+                        break;
+                    }
+                    case '|':
+                    {
+                        switch (s->next++[0])
+                        {
+                        case '|': s->type = TOK_INFIX; s->function = or; break;
+                        default: s->type = TOK_ERROR; break;
+                        }
+                        break;
+                    }
                     case '(': s->type = TOK_OPEN; break;
                     case ')': s->type = TOK_CLOSE; break;
                     case ',': s->type = TOK_SEP; break;
@@ -301,7 +378,6 @@ void next_token(state *s) {
         }
     } while (s->type == TOK_NULL);
 }
-
 
 static te_expr *list(state *s);
 static te_expr *expr(state *s);
@@ -317,7 +393,14 @@ static te_expr *base(state *s) {
             ret = new_expr(TE_CONSTANT, 0);
             CHECK_NULL(ret);
 
-            ret->value = s->value;
+            if (s->is_logic)
+            {
+                ret->logic_value = s->logic_value;
+            }
+	        else
+	        {
+                ret->value = s->value;
+	        }
             next_token(s);
             break;
 
@@ -325,7 +408,15 @@ static te_expr *base(state *s) {
             ret = new_expr(TE_VARIABLE, 0);
             CHECK_NULL(ret);
 
-            ret->bound = s->bound;
+            if (s->is_logic)
+            {
+	            ret->logic_bound = s->logic_bound;
+            }
+			else
+			{
+                ret->bound = s->bound;
+			}
+            
             next_token(s);
             break;
 
@@ -505,7 +596,7 @@ static te_expr *factor(state *s) {
     te_expr *ret = power(s);
     CHECK_NULL(ret);
 
-    while (s->type == TOK_INFIX && (s->function == pow)) {
+    while (s->type == TOK_INFIX && (s->function == pow || s->function == equals || s->function == not_equals || s->function == greater || s->function == less)) {
         te_fun2 t = s->function;
         next_token(s);
         te_expr *p = power(s);
@@ -526,11 +617,12 @@ static te_expr *factor(state *s) {
 
 static te_expr *term(state *s) {
     /* <term>      =    <factor> {("*" | "/" | "%") <factor>} */
+    /* <term_logic>      =    <factor> {("&&") <factor>} */
     te_expr *ret = factor(s);
     CHECK_NULL(ret);
 
-    while (s->type == TOK_INFIX && (s->function == mul || s->function == divide || s->function == fmod)) {
-        te_fun2 t = s->function;
+    while (s->type == TOK_INFIX && (s->function == mul || s->function == divide || s->function == fmod || s->function == and)) {
+        const void* cached_func = s->function;
         next_token(s);
         te_expr *f = factor(s);
         CHECK_NULL(f, te_free(ret));
@@ -539,7 +631,7 @@ static te_expr *term(state *s) {
         ret = NEW_EXPR(TE_FUNCTION2 | TE_FLAG_PURE, ret, f);
         CHECK_NULL(ret, te_free(f), te_free(prev));
 
-        ret->function = t;
+        ret->function = cached_func;
     }
 
     return ret;
@@ -551,7 +643,7 @@ static te_expr *expr(state *s) {
     te_expr *ret = term(s);
     CHECK_NULL(ret);
 
-    while (s->type == TOK_INFIX && (s->function == add || s->function == sub)) {
+    while (s->type == TOK_INFIX && (s->function == add || s->function == sub || s->function == or)) {
         te_fun2 t = s->function;
         next_token(s);
         te_expr *te = term(s);
@@ -590,7 +682,9 @@ static te_expr *list(state *s) {
 
 
 #define TE_FUN(...) ((double(*)(__VA_ARGS__))n->function)
+#define TE_FUN_LOGIC(...) ((unsigned int(*)(__VA_ARGS__))n->function)
 #define M(e) te_eval(n->parameters[e])
+#define M_LOGIC(e) te_logic_eval(n->parameters[e])
 
 
 double te_eval(const te_expr *n) {
@@ -633,7 +727,48 @@ double te_eval(const te_expr *n) {
 
 }
 
+unsigned int te_logic_eval(const te_expr* n)
+{
+    if (!n) return false;
+
+    switch (TYPE_MASK(n->type)) {
+	    case TE_CONSTANT: return n->logic_value;
+	    case TE_VARIABLE: return *n->logic_bound;
+
+	    case TE_FUNCTION0: case TE_FUNCTION1: case TE_FUNCTION2: case TE_FUNCTION3:
+	    case TE_FUNCTION4: case TE_FUNCTION5: case TE_FUNCTION6: case TE_FUNCTION7:
+	        switch (ARITY(n->type)) {
+		        case 0: return TE_FUN_LOGIC(void)();
+		        case 1: return TE_FUN_LOGIC(unsigned int)(M_LOGIC(0));
+				case 2: return TE_FUN_LOGIC(unsigned int, unsigned int)(M_LOGIC(0), M_LOGIC(1));
+		        case 3: return TE_FUN_LOGIC(unsigned int, unsigned int, unsigned int)(M_LOGIC(0), M_LOGIC(1), M_LOGIC(2));
+		        case 4: return TE_FUN_LOGIC(unsigned int, unsigned int, unsigned int, unsigned int)(M_LOGIC(0), M_LOGIC(1), M_LOGIC(2), M_LOGIC(3));
+		        case 5: return TE_FUN_LOGIC(unsigned int, unsigned int, unsigned int, unsigned int, unsigned int)(M_LOGIC(0), M_LOGIC(1), M_LOGIC(2), M_LOGIC(3), M_LOGIC(4));
+		        case 6: return TE_FUN_LOGIC(unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int)(M_LOGIC(0), M_LOGIC(1), M_LOGIC(2), M_LOGIC(3), M_LOGIC(4), M_LOGIC(5));
+		        case 7: return TE_FUN_LOGIC(unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int)(M_LOGIC(0), M_LOGIC(1), M_LOGIC(2), M_LOGIC(3), M_LOGIC(4), M_LOGIC(5), M_LOGIC(6));
+		        default: return false;
+	        }
+
+	    case TE_CLOSURE0: case TE_CLOSURE1: case TE_CLOSURE2: case TE_CLOSURE3:
+	    case TE_CLOSURE4: case TE_CLOSURE5: case TE_CLOSURE6: case TE_CLOSURE7:
+	        switch (ARITY(n->type)) {
+		        case 0: return TE_FUN_LOGIC(void*)(n->parameters[0]);
+		        case 1: return TE_FUN_LOGIC(void*, unsigned int)(n->parameters[1], M_LOGIC(0));
+		        case 2: return TE_FUN_LOGIC(void*, unsigned int, unsigned int)(n->parameters[2], M_LOGIC(0), M_LOGIC(1));
+		        case 3: return TE_FUN_LOGIC(void*, unsigned int, unsigned int, unsigned int)(n->parameters[3], M_LOGIC(0), M_LOGIC(1), M_LOGIC(2));
+		        case 4: return TE_FUN_LOGIC(void*, unsigned int, unsigned int, unsigned int, unsigned int)(n->parameters[4], M_LOGIC(0), M_LOGIC(1), M_LOGIC(2), M_LOGIC(3));
+		        case 5: return TE_FUN_LOGIC(void*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int)(n->parameters[5], M_LOGIC(0), M_LOGIC(1), M_LOGIC(2), M_LOGIC(3), M_LOGIC(4));
+		        case 6: return TE_FUN_LOGIC(void*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int)(n->parameters[6], M_LOGIC(0), M_LOGIC(1), M_LOGIC(2), M_LOGIC(3), M_LOGIC(4), M_LOGIC(5));
+		        case 7: return TE_FUN_LOGIC(void*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int)(n->parameters[7], M_LOGIC(0), M_LOGIC(1), M_LOGIC(2), M_LOGIC(3), M_LOGIC(4), M_LOGIC(5), M_LOGIC(6));
+		        default: return false;
+	        }
+
+        default: return false;
+    }
+}
+
 #undef TE_FUN
+#undef TE_FUN_LOGIC
 #undef M
 
 static void optimize(te_expr *n) {
@@ -662,9 +797,10 @@ static void optimize(te_expr *n) {
 }
 
 
-te_expr *te_compile(const char *expression, const te_variable *variables, int var_count, int *error) {
+te_expr *te_compile(const char *expression, bool is_logic, const te_variable *variables, int var_count, int *error) {
     state s;
     s.start = s.next = expression;
+    s.is_logic = is_logic;
     s.lookup = variables;
     s.lookup_len = var_count;
 
@@ -689,9 +825,8 @@ te_expr *te_compile(const char *expression, const te_variable *variables, int va
     }
 }
 
-
 double te_interp(const char *expression, int *error) {
-    te_expr *n = te_compile(expression, 0, 0, error);
+    te_expr *n = te_compile(expression, false, 0, 0, error);
     if (n == NULL) {
         return NAN;
     }
