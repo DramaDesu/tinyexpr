@@ -773,7 +773,7 @@ static te_expr *list(state *s) {
 
 
 #define TE_FUN(...) ((double(*)(__VA_ARGS__))n->function)
-#define TE_FUN_LOGIC(...) ((unsigned int(*)(__VA_ARGS__))n->function)
+#define TE_FUN_LOGIC(...) ((bool(*)(__VA_ARGS__))n->function)
 #define M(e) te_eval(n->parameters[e])
 #define M_LOGIC(e) te_logic_eval(n->parameters[e])
 
