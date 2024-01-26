@@ -15,3 +15,8 @@ target_link_libraries(Example Tinyexp)
 target_link_libraries(Example_logic Tinyexp)
 
 set_target_properties(Example_logic PROPERTIES LINKER_LANGUAGE CXX)
+
+install (TARGETS Tinyexp
+         ARCHIVE DESTINATION lib
+         LIBRARY DESTINATION lib
+         RUNTIME DESTINATION bin)
