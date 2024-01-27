@@ -5,7 +5,7 @@ cmake_minimum_required (VERSION 3.8)
 
 project ("Tinyexp")
 
-add_library(Tinyexp "tinyexpr.c" "tinyexpr.h")
+add_library(Tinyexp STATIC "tinyexpr.c" "tinyexpr.h")
 
 add_executable(Example example.c)
 add_executable(Example_logic "example_logic.cpp")
