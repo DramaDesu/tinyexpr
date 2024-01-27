@@ -20,3 +20,5 @@ install (TARGETS Tinyexp
          ARCHIVE DESTINATION lib
          LIBRARY DESTINATION lib
          RUNTIME DESTINATION bin)
+
+INSTALL(FILES "tinyexpr.h" DESTINATION include)
